@@ -1,1 +1,128 @@
-<h1>Winter Watch</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Winter Watch - County Cavan</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; line-height: 1.5; }
+    .box { border: 1px solid #ccc; padding: 15px; border-radius: 6px; margin-bottom: 20px; background: #f9f9f9; }
+    input, select, textarea, button { padding: 8px; margin-top: 5px; font-size: 14px; }
+    textarea { width: 100%; box-sizing: border-box; }
+    #response { white-space: pre-wrap; background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 6px; min-height: 80px; }
+    .meta { font-size: 12px; color: #555; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+  <h1>❄️ Winter Watch — County Cavan</h1>
+
+  <!-- Painel de Configurações (Settings) exigido na Parte 1 -->
+  <div class="box">
+    <h3>Settings (Your AI Brain)</h3>
+    <label>Provider:</label>
+    <select id="provider">
+      <option value="gemini">Google Gemini</option>
+    </select>
+    <br><br>
+    <label>Model Name:</label>
+    <input type="text" id="modelInput" value="gemini-2.5-flash" size="25">
+    <br><br>
+    <label>API Key:</label>
+    <input type="password" id="apiKeyInput" placeholder="Cole sua chave aqui..." size="35">
+    <button onclick="saveKey()">Save</button>
+    <button onclick="forgetKey()">Forget key</button>
+    <p id="keyStatus" class="meta"></p>
+  </div>
+
+  <!-- Caixa de Perguntas -->
+  <div class="box">
+    <h3>Ask Winter Watch</h3>
+    <textarea id="questionInput" rows="3" placeholder="Type a test question..."></textarea>
+    <br>
+    <button onclick="askAI()">Send</button>
+  </div>
+
+  <h3>Response</h3>
+  <div id="response">Waiting for your question...</div>
+  <div id="tokenInfo" class="meta"></div>
+
+  <script>
+    // Carrega a chave salva no navegador ao abrir a página
+    window.onload = () => {
+      const savedKey = localStorage.getItem('ww_api_key');
+      const savedModel = localStorage.getItem('ww_model');
+      if (savedKey) {
+        document.getElementById('apiKeyInput').value = savedKey;
+        document.getElementById('keyStatus').innerText = "✅ Key loaded from browser storage.";
+      }
+      if (savedModel) {
+        document.getElementById('modelInput').value = savedModel;
+      }
+    };
+
+    // Salva no localStorage (nunca vai para o GitHub)
+    function saveKey() {
+      const key = document.getElementById('apiKeyInput').value.trim();
+      const model = document.getElementById('modelInput').value.trim();
+      if (!key) return alert("Please paste a key first.");
+      localStorage.setItem('ww_api_key', key);
+      localStorage.setItem('ww_model', model);
+      document.getElementById('keyStatus').innerText = "✅ Saved in browser localStorage.";
+    }
+
+    // Apaga do navegador
+    function forgetKey() {
+      localStorage.removeItem('ww_api_key');
+      document.getElementById('apiKeyInput').value = "";
+      document.getElementById('keyStatus').innerText = "🗑️ Key removed.";
+    }
+
+    // Envia a pergunta diretamente para o Gemini
+    async function askAI() {
+      const key = localStorage.getItem('ww_api_key');
+      const model = document.getElementById('modelInput').value.trim();
+      const question = document.getElementById('questionInput').value.trim();
+      const responseDiv = document.getElementById('response');
+      const tokenDiv = document.getElementById('tokenInfo');
+
+      if (!key) return alert("Please save your API key in Settings first!");
+      if (!question) return alert("Please type a question.");
+
+      responseDiv.innerText = "Thinking...";
+      tokenDiv.innerText = "";
+
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": key
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: question }] }]
+          })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          responseDiv.innerText = "Error: " + (data.error?.message || res.statusText);
+          return;
+        }
+
+        const answer = data.candidates[0].content.parts[0].text;
+        responseDiv.innerText = answer;
+
+        if (data.usageMetadata) {
+          tokenDiv.innerText = `Tokens used — Input: ${data.usageMetadata.promptTokenCount} | Output: ${data.usageMetadata.candidatesTokenCount} | Total: ${data.usageMetadata.totalTokenCount}`;
+        }
+
+      } catch (err) {
+        responseDiv.innerText = "Network error: " + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
