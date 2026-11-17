@@ -62,12 +62,23 @@
     };
 
     function saveKey() {
-      const key = document.getElementById('apiKeyInput').value.trim();
-      const model = document.getElementById('modelInput').value.trim();
-      if (!key) return alert("Please paste a key first.");
+      const keyInput = document.getElementById('apiKeyInput');
+      const modelInput = document.getElementById('modelInput');
+      const statusP = document.getElementById('keyStatus');
+      
+      const key = keyInput.value.trim();
+      const model = modelInput.value.trim();
+
+      if (!key) {
+        alert("Please paste a valid API key first.");
+        return;
+      }
+
       localStorage.setItem('ww_api_key', key);
       localStorage.setItem('ww_model', model);
-      document.getElementById('keyStatus').innerText = "✅ Saved in browser localStorage.";
+      
+      statusP.innerText = "✅ Saved successfully in browser!";
+      console.log("Key saved:", key.substring(0, 6) + "...");
     }
 
     function forgetKey() {
