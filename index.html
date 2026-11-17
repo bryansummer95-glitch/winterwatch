@@ -62,27 +62,26 @@
     };
 
     function saveKey() {
-      const keyInput = document.getElementById('apiKeyInput');
-      const modelInput = document.getElementById('modelInput');
-      const statusP = document.getElementById('keyStatus');
-      
-      const key = keyInput.value.trim();
-      const model = modelInput.value.trim();
+      const key = document.getElementById('apiKeyInput').value.trim();
+      const model = document.getElementById('modelInput').value.trim();
 
       if (!key) {
-        alert("Please paste a valid API key first.");
+        alert("Por favor, cole a chave da API primeiro.");
         return;
       }
 
       localStorage.setItem('ww_api_key', key);
       localStorage.setItem('ww_model', model);
-      statusP.innerText = "✅ Saved successfully in browser!";
+      
+      document.getElementById('keyStatus').innerText = "✅ Salvo com sucesso!";
+      alert("Chave salva com sucesso no navegador!");
     }
 
     function forgetKey() {
       localStorage.removeItem('ww_api_key');
       document.getElementById('apiKeyInput').value = "";
       document.getElementById('keyStatus').innerText = "🗑️ Key removed.";
+      alert("Chave removida.");
     }
 
     function parseCSV(text) {
@@ -182,37 +181,4 @@ ${routeSummaryLines.join('\n')}
 ${question}
 `;
 
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": key
-          },
-          body: JSON.stringify({
-            contents: [
-              { role: "user", parts: [{ text: systemPrompt + "\n\n" + userPayload }] }
-            ]
-          })
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          responseDiv.innerText = "Error: " + (data.error?.message || res.statusText);
-          return;
-        }
-
-        const answer = data.candidates[0].content.parts[0].text;
-        responseDiv.innerText = answer;
-
-        if (data.usageMetadata) {
-          tokenDiv.innerText = `Tokens used — Input: ${data.usageMetadata.promptTokenCount} | Output: ${data.usageMetadata.candidatesTokenCount} | Total: ${data.usageMetadata.totalTokenCount}`;
-        }
-
-      } catch (err) {
-        responseDiv.innerText = "Error fetching data: " + err.message;
-      }
-    }
-  </script>
-</body>
-</html>
+        const
