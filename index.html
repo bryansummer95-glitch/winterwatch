@@ -2,27 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Winter Watch - County Cavan</title>
+  <title>Winter Watch - County Cavan (Part 2)</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; line-height: 1.5; }
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 0 20px; line-height: 1.5; color: #333; }
     .box { border: 1px solid #ccc; padding: 15px; border-radius: 6px; margin-bottom: 20px; background: #f9f9f9; }
     input, select, textarea, button { padding: 8px; margin-top: 5px; font-size: 14px; }
     textarea { width: 100%; box-sizing: border-box; }
     #response { white-space: pre-wrap; background: #fff; border: 1px solid #ddd; padding: 15px; border-radius: 6px; min-height: 80px; }
     .meta { font-size: 12px; color: #555; margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+    th { background: #f2f2f2; }
   </style>
 </head>
 <body>
 
-  <h1>❄️ Winter Watch — County Cavan</h1>
+  <h1>❄️ Winter Watch — County Cavan (Core Decision Support)</h1>
 
-  <!-- Painel de Configurações (Settings) exigido na Parte 1 -->
+  <!-- Painel de Configurações -->
   <div class="box">
     <h3>Settings (Your AI Brain)</h3>
     <label>Provider:</label>
-    <select id="provider">
-      <option value="gemini">Google Gemini</option>
-    </select>
+    <select id="provider"><option value="gemini">Google Gemini</option></select>
     <br><br>
     <label>Model Name:</label>
     <input type="text" id="modelInput" value="gemini-2.5-flash" size="25">
@@ -36,31 +37,30 @@
 
   <!-- Caixa de Perguntas -->
   <div class="box">
-    <h3>Ask Winter Watch</h3>
-    <textarea id="questionInput" rows="3" placeholder="Type a test question..."></textarea>
+    <h3>Ask Duty Engineer</h3>
+    <textarea id="questionInput" rows="3" placeholder="Ex: Do we grit tonight? Which routes, and when do the trucks leave?"></textarea>
     <br>
-    <button onclick="askAI()">Send</button>
+    <button onclick="runDutyAnalysis()">Ask AI & Check Routes</button>
   </div>
 
   <h3>Response</h3>
   <div id="response">Waiting for your question...</div>
   <div id="tokenInfo" class="meta"></div>
 
+  <h3>Calculated Route Metrics (Fresh from Sources)</h3>
+  <div id="tableContainer">No data loaded yet. Click 'Ask' to fetch.</div>
+
   <script>
-    // Carrega a chave salva no navegador ao abrir a página
     window.onload = () => {
       const savedKey = localStorage.getItem('ww_api_key');
       const savedModel = localStorage.getItem('ww_model');
       if (savedKey) {
         document.getElementById('apiKeyInput').value = savedKey;
-        document.getElementById('keyStatus').innerText = "✅ Key loaded from browser storage.";
+        document.getElementById('keyStatus').innerText = "✅ Key loaded from browser.";
       }
-      if (savedModel) {
-        document.getElementById('modelInput').value = savedModel;
-      }
+      if (savedModel) document.getElementById('modelInput').value = savedModel;
     };
 
-    // Salva no localStorage (nunca vai para o GitHub)
     function saveKey() {
       const key = document.getElementById('apiKeyInput').value.trim();
       const model = document.getElementById('modelInput').value.trim();
@@ -70,59 +70,46 @@
       document.getElementById('keyStatus').innerText = "✅ Saved in browser localStorage.";
     }
 
-    // Apaga do navegador
     function forgetKey() {
       localStorage.removeItem('ww_api_key');
       document.getElementById('apiKeyInput').value = "";
       document.getElementById('keyStatus').innerText = "🗑️ Key removed.";
     }
 
-    // Envia a pergunta diretamente para o Gemini
-    async function askAI() {
+    function parseCSV(text) {
+      const lines = text.trim().split('\n');
+      const headers = lines[0].split(',').map(h => h.trim());
+      return lines.slice(1).map(line => {
+        const values = line.split(',').map(v => v.trim());
+        let obj = {};
+        headers.forEach((h, i) => obj[h] = values[i]);
+        return obj;
+      });
+    }
+
+    async function runDutyAnalysis() {
       const key = localStorage.getItem('ww_api_key');
       const model = document.getElementById('modelInput').value.trim();
       const question = document.getElementById('questionInput').value.trim();
       const responseDiv = document.getElementById('response');
       const tokenDiv = document.getElementById('tokenInfo');
+      const tableDiv = document.getElementById('tableContainer');
 
       if (!key) return alert("Please save your API key in Settings first!");
       if (!question) return alert("Please type a question.");
 
-      responseDiv.innerText = "Thinking...";
+      responseDiv.innerText = "Fetching fresh sources (1 to 4) and analyzing...";
       tokenDiv.innerText = "";
+      tableDiv.innerHTML = "";
 
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+        const [resTonight, resRoutes, resWeather, resPlan] = await Promise.all([
+          fetch('https://bdaib-hub.pages.dev/data/winter/tonight.csv'),
+          fetch('https://bdaib-hub.pages.dev/data/winter/routes.csv'),
+          fetch('https://api.open-meteo.com/v1/forecast?latitude=53.99,54.04,54.07,53.88,53.92,53.87,54.06,54.11,53.83,53.9&longitude=-7.345,-7.38,-7.44,-7.33,-6.98,-7.54,-7.09,-7.58,-7.08,-6.8&hourly=temperature_2m,soil_temperature_0cm,dew_point_2m,precipitation&forecast_hours=24&timezone=Europe%2FDublin'),
+          fetch('https://bdaib-hub.pages.dev/data/winter/plan.md')
+        ]);
 
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": key
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: question }] }]
-          })
-        });
-
-        const data = await res.json();
-
-        if (!res.ok) {
-          responseDiv.innerText = "Error: " + (data.error?.message || res.statusText);
-          return;
-        }
-
-        const answer = data.candidates[0].content.parts[0].text;
-        responseDiv.innerText = answer;
-
-        if (data.usageMetadata) {
-          tokenDiv.innerText = `Tokens used — Input: ${data.usageMetadata.promptTokenCount} | Output: ${data.usageMetadata.candidatesTokenCount} | Total: ${data.usageMetadata.totalTokenCount}`;
-        }
-
-      } catch (err) {
-        responseDiv.innerText = "Network error: " + err.message;
-      }
-    }
-  </script>
-</body>
-</html>
+        const tonightText = await resTonight.text();
+        const routesText = await resRoutes.text();
+        const weatherData =
