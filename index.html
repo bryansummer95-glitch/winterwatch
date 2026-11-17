@@ -1,146 +1,217 @@
-function calculateDeparture(freezeTime, length) {
-  if (!freezeTime) {
-    return {
-      time: "Not calculable — no freeze forecast",
-      valid: true,
-      reason: "No freezing hour forecast. No departure time can be calculated."
+
+<!-- Add PapaParse before your Winter Watch JavaScript -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<!-- Add this where you want the summary table to appear -->
+<section id="five-winters">
+  <h2>Five winters, summarised</h2>
+  <p id="history-status">Loading historical data...</p>
+  <div id="history-table"></div>
+</section>
+
+<script>
+let fiveWintersSummary = null;
+
+async function loadFiveWinters() {
+  const status = document.getElementById("history-status");
+  const output = document.getElementById("history-table");
+
+  try {
+    // Fetch the CSV once when the page loads
+    const response = await fetch("./history.csv");
+
+    if (!response.ok) {
+      throw new Error("Could not load history.csv");
+    }
+
+    const csvText = await response.text();
+
+    const parsed = Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: true
+    });
+
+    const data = parsed.data;
+
+    // Check the original dataset before filtering
+    const originalRows = data.length;
+    const originalRuns = data.filter(
+      r => String(r.gritted).toLowerCase() === "yes"
+    ).length;
+
+    const originalSalt = data.reduce(
+      (sum, r) => sum + (Number(r.salt_t) || 0), 0
+    );
+
+    // Remove impossible air temperature readings
+    const invalidRows = data.filter(
+      r => Number(r.min_air_c) > 40
+    );
+
+    const cleanData = data.filter(
+      r => Number(r.min_air_c) <= 40
+    );
+
+    // Group records by route_id
+    const routes = {};
+
+    cleanData.forEach(row => {
+      const id = row.route_id;
+
+      if (!routes[id]) {
+        routes[id] = {
+          route_id: id,
+          route: row.route,
+          nights: 0,
+          runs: 0,
+          salt_t: 0,
+          ice_incidents: 0,
+          ice_treated: 0,
+          ice_untreated: 0,
+          no_salt_nights: 0
+        };
+      }
+
+      const r = routes[id];
+
+      r.nights++;
+
+      const ice = Number(row.ice_incidents) || 0;
+      const salt = Number(row.salt_t) || 0;
+      const gritted = String(row.gritted).toLowerCase();
+      const decision = String(row.decision).toLowerCase();
+
+      r.salt_t += salt;
+      r.ice_incidents += ice;
+
+      if (gritted === "yes") {
+        r.runs++;
+        r.ice_treated += ice;
+      }
+
+      if (gritted === "no") {
+        r.ice_untreated += ice;
+      }
+
+      if (decision === "no salt") {
+        r.no_salt_nights++;
+      }
+    });
+
+    const summary = Object.values(routes);
+
+    // Calculate grand totals for the CLEAN summary
+    const totals = {
+      nights: 0,
+      runs: 0,
+      salt_t: 0,
+      ice_incidents: 0,
+      ice_treated: 0,
+      ice_untreated: 0,
+      no_salt_nights: 0
     };
+
+    summary.forEach(r => {
+      Object.keys(totals).forEach(key => {
+        totals[key] += r[key];
+      });
+    });
+
+    fiveWintersSummary = {
+      label: "Five winters, summarised",
+      source: "history.csv",
+      original_rows: originalRows,
+      excluded_invalid_temperature_rows: invalidRows.length,
+      valid_rows: cleanData.length,
+      routes: summary,
+      totals: totals
+    };
+
+    // Display original-file validation separately
+    status.innerHTML = `
+      <strong>Original file checks</strong><br>
+      Rows: ${originalRows.toLocaleString()}<br>
+      Gritting runs: ${originalRuns}<br>
+      Salt: ${originalSalt.toFixed(1)} tonnes<br><br>
+      <strong>Data quality:</strong>
+      ${invalidRows.length} impossible temperature reading excluded.
+      <br><strong>Valid records:</strong>
+      ${cleanData.length.toLocaleString()}
+    `;
+
+    // Build the summary table
+    let html = `
+      <table border="1" cellpadding="7"
+        style="border-collapse:collapse;width:100%;
+        text-align:left;">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th>Nights</th>
+            <th>Runs</th>
+            <th>Salt (t)</th>
+            <th>Ice total</th>
+            <th>Ice treated</th>
+            <th>Ice untreated</th>
+            <th>No salt</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    summary.forEach(r => {
+      html += `
+        <tr>
+          <td>${r.route_id} - ${r.route}</td>
+          <td>${r.nights}</td>
+          <td>${r.runs}</td>
+          <td>${r.salt_t.toFixed(2)}</td>
+          <td>${r.ice_incidents}</td>
+          <td>${r.ice_treated}</td>
+          <td>${r.ice_untreated}</td>
+          <td>${r.no_salt_nights}</td>
+        </tr>
+      `;
+    });
+
+    html += `
+        </tbody>
+        <tfoot>
+          <tr>
+            <th>GRAND TOTAL</th>
+            <th>${totals.nights}</th>
+            <th>${totals.runs}</th>
+            <th>${totals.salt_t.toFixed(2)}</th>
+            <th>${totals.ice_incidents}</th>
+            <th>${totals.ice_treated}</th>
+            <th>${totals.ice_untreated}</th>
+            <th>${totals.no_salt_nights}</th>
+          </tr>
+        </tfoot>
+      </table>
+    `;
+
+    output.innerHTML = html;
+
+    console.log("Five winters summary:", fiveWintersSummary);
+
+  } catch (error) {
+    status.textContent = "Error: " + error.message;
+    console.error(error);
   }
-
-  // Finish spreading at least one hour before freezing.
-  // Travel time: one hour per 20 km.
-  const required = new Date(
-    new Date(freezeTime).getTime() -
-    (1 + length / 20) * 3600000
-  );
-
-  const hour = Number(
-    required.toLocaleString("en-IE", {
-      timeZone: "Europe/Dublin",
-      hour: "2-digit",
-      hour12: false
-    })
-  );
-
-  const minute = Number(
-    required.toLocaleString("en-IE", {
-      timeZone: "Europe/Dublin",
-      minute: "2-digit"
-    })
-  );
-
-  const minutesOfDay = hour * 60 + minute;
-
-  // Permitted departure window: 17:00 to 05:00.
-  const insideWindow =
-    minutesOfDay >= 17 * 60 ||
-    minutesOfDay <= 5 * 60;
-
-  return {
-    time: timeString(required),
-    valid: insideWindow,
-    reason: insideWindow
-      ? ""
-      : "Required departure is outside the permitted 17:00–05:00 window."
-  };
 }
 
-
-function calculateRoute(route, weather, depotMap) {
-  const h = weather.hourly;
-
-  if (
-    !h ||
-    !h.soil_temperature_0cm ||
-    !h.dew_point_2m ||
-    !h.precipitation ||
-    !h.time
-  ) {
-    throw new Error("Missing forecast data for " + route.id);
+// Return ONLY the summary to the AI, never the raw CSV
+function getFiveWintersBrainContext() {
+  if (!fiveWintersSummary) {
+    return "Historical data is not available yet.";
   }
 
-  const soil = h.soil_temperature_0cm.slice(0, 18);
-  const dew = h.dew_point_2m.slice(0, 18);
-  const rain = h.precipitation.slice(0, 18);
-  const times = h.time.slice(0, 18);
-
-  const valid = soil
-    .map((v, i) => ({ v, i }))
-    .filter(x => Number.isFinite(x.v));
-
-  if (!valid.length) {
-    throw new Error("No valid ground temperature for " + route.id);
-  }
-
-  const minimum = Math.min(...valid.map(x => x.v));
-
-  let wet = false;
-  let freezeTime = null;
-
-  for (let i = 0; i < soil.length; i++) {
-    if (!Number.isFinite(soil[i])) continue;
-
-    if (soil[i] <= 0 && freezeTime === null) {
-      freezeTime = times[i];
-    }
-
-    if (
-      (Number.isFinite(rain[i]) && rain[i] > 0) ||
-      (
-        Number.isFinite(dew[i]) &&
-        Math.abs(soil[i] - dew[i]) <= 1
-      )
-    ) {
-      wet = true;
-    }
-  }
-
-  const limit =
-    route.priority === 1 ? 1.0 :
-    route.priority === 2 ? 0.5 : -1.0;
-
-  const depot = depotMap.get(norm(route.depot));
-
-  let decision = "DON'T TREAT";
-  let reason = "";
-
-  if (minimum > limit) {
-    reason =
-      `Forecast minimum ${minimum.toFixed(1)}°C is above the ` +
-      `${limit.toFixed(1)}°C Priority ${route.priority} threshold.`;
-  } else if (!wet) {
-    reason =
-      `Forecast minimum ${minimum.toFixed(1)}°C meets the temperature ` +
-      "threshold, but the road is not forecast to be wet.";
-  } else if (!depot) {
-    reason = "Depot information unavailable. Engineer must verify resources.";
-  } else if (
-    route.priority === 3 &&
-    depot.capacity &&
-    depot.stock < depot.capacity * 0.40
-  ) {
-    reason =
-      `Priority 3 requires at least 40% depot stock. ` +
-      `Current stock: ${(depot.stock / depot.capacity * 100).toFixed(1)}%.`;
-  } else if (route.salt <= 0) {
-    reason = "Salt requirement unavailable.";
-  } else {
-    // Weather conditions support treatment.
-    // Resource and departure checks happen in allocateResources().
-    decision = "TREAT";
-    reason =
-      `Minimum ground temperature ${minimum.toFixed(1)}°C meets the ` +
-      `${limit.toFixed(1)}°C threshold and the road may be wet.`;
-  }
-
-  return {
-    ...route,
-    minimum,
-    wet,
-    freezeTime,
-    depot,
-    decision,
-    reason,
-    departure: "—"
-  };
+  return "Five winters, summarised:\n" +
+    JSON.stringify(fiveWintersSummary);
 }
+
+// Load once when the page opens
+loadFiveWinters();
+</script>
