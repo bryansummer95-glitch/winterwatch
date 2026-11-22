@@ -1,419 +1,174 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Winter Watch — County Cavan Roads Portal</title>
-  <style>
-    :root {
-      --navy: #0f172a;
-      --navy-light: #1e293b;
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --teal: #0d9488;
-      --teal-hover: #0f766e;
-      --bg: #f1f5f9;
-      --card: #ffffff;
-      --border: #e2e8f0;
-      --text: #0f172a;
-      --muted: #64748b;
+
+<script>
+const DEFAULT_MODELS = {
+  gemini: "gemini-2.5-flash",
+  openai: "gpt-4o-mini",
+  anthropic: "claude-3-5-haiku-latest",
+  groq: "llama-3.3-70b-versatile"
+};
+
+window.onload = () => {
+  try {
+    const provider = localStorage.getItem("ww_provider");
+    const model = localStorage.getItem("ww_model");
+    const key = localStorage.getItem("ww_api_key");
+
+    if (provider) document.getElementById("provider").value = provider;
+    if (model) document.getElementById("model").value = model;
+
+    if (key) {
+      document.getElementById("apiKey").value = key;
+      document.getElementById("status").innerText =
+        "Key loaded from browser storage.";
+    }
+  } catch (error) {
+    document.getElementById("status").innerText =
+      "Storage error: " + error.message;
+  }
+};
+
+function setDefaultModel() {
+  const provider = document.getElementById("provider").value;
+  document.getElementById("model").value =
+    DEFAULT_MODELS[provider] || "";
+}
+
+function saveSettings() {
+  const provider = document.getElementById("provider").value;
+  const model = document.getElementById("model").value.trim();
+  const key = document.getElementById("apiKey").value.trim();
+  const status = document.getElementById("status");
+
+  if (!key) {
+    status.innerText = "Please enter your API key.";
+    return;
+  }
+
+  try {
+    localStorage.setItem("ww_provider", provider);
+    localStorage.setItem("ww_model", model);
+    localStorage.setItem("ww_api_key", key);
+
+    status.innerText = "Saved successfully in this browser!";
+  } catch (error) {
+    status.innerText = "Could not save: " + error.message;
+  }
+}
+
+function forgetKey() {
+  localStorage.removeItem("ww_api_key");
+  document.getElementById("apiKey").value = "";
+  document.getElementById("status").innerText =
+    "API key removed.";
+}
+
+async function sendQuestion() {
+  const provider = document.getElementById("provider").value;
+  const model = document.getElementById("model").value.trim();
+  const key = localStorage.getItem("ww_api_key");
+  const question = document.getElementById("question").value.trim();
+
+  const answer = document.getElementById("answer");
+  const usage = document.getElementById("usage");
+
+  if (!key) {
+    answer.innerText = "Please save your API key first.";
+    return;
+  }
+
+  if (!question) {
+    answer.innerText = "Please enter a question.";
+    return;
+  }
+
+  try {
+    answer.innerText = "Connecting to AI...";
+    let url, headers = {"Content-Type": "application/json"};
+    let body;
+
+    if (provider === "openai" || provider === "groq") {
+      url = provider === "openai"
+        ? "https://api.openai.com/v1/chat/completions"
+        : "https://api.groq.com/openai/v1/chat/completions";
+
+      headers.Authorization = "Bearer " + key;
+
+      body = {
+        model,
+        messages: [{role: "user", content: question}]
+      };
+
+    } else if (provider === "anthropic") {
+      url = "https://api.anthropic.com/v1/messages";
+
+      headers["x-api-key"] = key;
+      headers["anthropic-version"] = "2023-06-01";
+      headers["anthropic-dangerous-direct-browser-access"] = "true";
+
+      body = {
+        model,
+        max_tokens: 1024,
+        messages: [{role: "user", content: question}]
+      };
+
+    } else {
+      url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+      headers["x-goog-api-key"] = key;
+
+      body = {
+        contents: [{
+          role: "user",
+          parts: [{text: question}]
+        }]
+      };
     }
 
-    * { box-sizing: border-box; }
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body)
+    });
 
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || JSON.stringify(data));
     }
 
-    /* Top Navigation Bar */
-    header {
-      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
-      color: #fff;
-      padding: 18px 32px;
-      border-bottom: 3px solid var(--primary);
-      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+    let result = "";
+    let totalTokens = 0;
+
+    if (provider === "openai" || provider === "groq") {
+      result = data.choices?.[0]?.message?.content || "";
+      totalTokens = data.usage?.total_tokens || 0;
+
+    } else if (provider === "anthropic") {
+      result = (data.content || [])
+        .map(item => item.text || "")
+        .join("\n");
+
+      const u = data.usage || {};
+      totalTokens = (u.input_tokens || 0) + (u.output_tokens || 0);
+
+    } else {
+      result = (data.candidates?.[0]?.content?.parts || [])
+        .map(item => item.text || "")
+        .join("\n");
+
+      const u = data.usageMetadata || {};
+      totalTokens = (u.promptTokenCount || 0) +
+                    (u.candidatesTokenCount || 0);
     }
 
-    .header-inner {
-      max-width: 1180px;
-      margin: 0 auto;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
+    answer.innerText = result || "Empty response.";
+    usage.innerText = "Total tokens: " + totalTokens;
 
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .brand-icon {
-      font-size: 28px;
-      background: rgba(255, 255, 255, 0.1);
-      padding: 8px 12px;
-      border-radius: 10px;
-    }
-
-    .brand h1 {
-      margin: 0;
-      font-size: 22px;
-      letter-spacing: -0.3px;
-    }
-
-    .brand p {
-      margin: 2px 0 0;
-      font-size: 13px;
-      color: #94a3b8;
-    }
-
-    .status-pill {
-      background: rgba(37, 99, 235, 0.2);
-      border: 1px solid rgba(96, 165, 250, 0.4);
-      color: #bfdbfe;
-      padding: 6px 14px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    /* Main Layout Grid */
-    main {
-      max-width: 1180px;
-      margin: 28px auto;
-      padding: 0 24px;
-      display: grid;
-      grid-template-columns: 340px 1fr;
-      gap: 24px;
-      align-items: start;
-    }
-
-    @media (max-width: 860px) {
-      main { grid-template-columns: 1fr; }
-    }
-
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 22px;
-      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
-      margin-bottom: 20px;
-    }
-
-    details summary {
-      font-weight: 700;
-      font-size: 16px;
-      cursor: pointer;
-      color: var(--navy);
-      list-style: none;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    details summary::-webkit-details-marker { display: none; }
-
-    details summary::after {
-      content: "▾";
-      font-size: 14px;
-      color: var(--muted);
-    }
-
-    details[open] summary::after { content: "▴"; }
-
-    .section-title {
-      margin: 0 0 14px;
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--navy);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .field { margin-top: 14px; }
-
-    label {
-      display: block;
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-
-    input, select, textarea {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      font-size: 14px;
-      font-family: inherit;
-      background: #f8fafc;
-      transition: border-color 0.2s, background 0.2s;
-    }
-
-    input:focus, select:focus, textarea:focus {
-      outline: none;
-      border-color: var(--primary);
-      background: #fff;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      margin-top: 16px;
-      flex-wrap: wrap;
-    }
-
-    button {
-      padding: 10px 16px;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s, transform 0.05s;
-    }
-
-    button:active { transform: scale(0.98); }
-
-    .btn-save { background: var(--primary); color: #fff; flex: 1; }
-    .btn-save:hover { background: var(--primary-hover); }
-
-    .btn-forget { background: #fee2e2; color: #991b1b; }
-    .btn-forget:hover { background: #fecaca; }
-
-    .btn-send { background: var(--teal); color: #fff; padding: 11px 22px; }
-    .btn-send:hover { background: var(--teal-hover); }
-
-    #status {
-      margin-top: 12px;
-      font-size: 12px;
-      color: #0f766e;
-      font-weight: 500;
-    }
-
-    #answer {
-      white-space: pre-wrap;
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-left: 4px solid var(--teal);
-      border-radius: 8px;
-      padding: 16px;
-      min-height: 150px;
-      font-size: 15px;
-      color: #1e293b;
-    }
-
-    #usage {
-      margin-top: 10px;
-      font-size: 12px;
-      color: var(--muted);
-      background: #f1f5f9;
-      padding: 6px 10px;
-      border-radius: 6px;
-      display: inline-block;
-    }
-
-    footer {
-      text-align: center;
-      font-size: 12px;
-      color: var(--muted);
-      padding: 20px;
-    }
-  </style>
-</head>
-<body>
-
-  <header>
-    <div class="header-inner">
-      <div class="brand">
-        <div class="brand-icon">❄️</div>
-        <div>
-          <h1>Winter Watch</h1>
-          <p>County Cavan Council • Road Maintenance Decision Support</p>
-        </div>
-      </div>
-      <div class="status-pill">Part 1 • AI Brain Connected</div>
-    </div>
-  </header>
-
-  <main>
-    <!-- Left Sidebar: Settings -->
-    <aside>
-      <details class="card" open>
-        <summary>⚙️ AI Brain Settings</summary>
-
-        <div class="field">
-          <label for="provider">AI Provider</label>
-          <select id="provider" onchange="setDefaultModel()">
-            <option value="gemini">Google Gemini</option>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="groq">Groq</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="model">Model Name</label>
-          <input type="text" id="model" value="gemini-2.5-flash">
-        </div>
-
-        <div class="field">
-          <label for="apiKey">API Key (Browser Only)</label>
-          <input type="password" id="apiKey" placeholder="Paste your API key here...">
-        </div>
-
-        <div class="actions">
-          <button type="button" class="btn-save" onclick="saveSettings()">Save Key</button>
-          <button type="button" class="btn-forget" onclick="forgetKey()">Forget</button>
-        </div>
-
-        <div id="status"></div>
-      </details>
-    </aside>
-
-    <!-- Right Main Panel: Question & Answer -->
-    <section>
-      <div class="card">
-        <h2 class="section-title">💬 Ask Duty Engineer Assistant</h2>
-        <label for="question">Your Question</label>
-        <textarea id="question" rows="4" placeholder="Ask anything to test your AI connection..."></textarea>
-        <div class="actions">
-          <button type="button" class="btn-send" onclick="sendQuestion()">Send Question</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2 class="section-title">📋 Decision Support Response</h2>
-        <div id="answer">Waiting for a question...</div>
-        <div id="usage">Tokens: waiting for request</div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    Winter Watch Internal Operations Tool • Keys are stored strictly in browser localStorage and never uploaded to GitHub.
-  </footer>
-
-  <script>
-    const DEFAULT_MODELS = {
-      gemini: "gemini-2.5-flash",
-      openai: "gpt-4o-mini",
-      anthropic: "claude-3-5-haiku-latest",
-      groq: "llama-3.3-70b-versatile"
-    };
-
-    window.onload = () => {
-      const savedProvider = localStorage.getItem("ww_provider");
-      const savedModel = localStorage.getItem("ww_model");
-      const savedKey = localStorage.getItem("ww_api_key");
-
-      if (savedProvider) document.getElementById("provider").value = savedProvider;
-      if (savedModel) document.getElementById("model").value = savedModel;
-      if (savedKey) {
-        document.getElementById("apiKey").value = savedKey;
-        document.getElementById("status").innerText = "✓ Key loaded from localStorage.";
-      }
-    };
-
-    function setDefaultModel() {
-      const provider = document.getElementById("provider").value;
-      document.getElementById("model").value = DEFAULT_MODELS[provider] || "";
-    }
-
-    function saveSettings() {
-      const provider = document.getElementById("provider").value;
-      const model = document.getElementById("model").value.trim();
-      const key = document.getElementById("apiKey").value.trim();
-
-      if (!key) {
-        document.getElementById("status").innerText = "Please paste an API key before saving.";
-        return;
-      }
-
-      localStorage.setItem("ww_provider", provider);
-      localStorage.setItem("ww_model", model);
-      localStorage.setItem("ww_api_key", key);
-      document.getElementById("status").innerText = "✓ Saved in this browser (localStorage).";
-    }
-
-    function forgetKey() {
-      localStorage.removeItem("ww_api_key");
-      document.getElementById("apiKey").value = "";
-      document.getElementById("status").innerText = "Key removed from localStorage.";
-    }
-
-    async function sendQuestion() {
-      const provider = document.getElementById("provider").value;
-      const model = document.getElementById("model").value.trim();
-      const key = (localStorage.getItem("ww_api_key") || document.getElementById("apiKey").value).trim();
-      const question = document.getElementById("question").value.trim();
-
-      const answerEl = document.getElementById("answer");
-      const usageEl = document.getElementById("usage");
-
-      if (!key) {
-        answerEl.innerText = "Error: No API key saved. Paste your key and click Save Key first.";
-        return;
-      }
-      if (!question) {
-        answerEl.innerText = "Error: Type a question first.";
-        return;
-      }
-
-      answerEl.innerText = "Sending request to " + provider + "...";
-      usageEl.innerText = "Calculating tokens...";
-
-      try {
-        let url = "";
-        let headers = { "Content-Type": "application/json" };
-        let body = {};
-
-        if (provider === "openai" || provider === "groq") {
-          url = provider === "openai"
-            ? "https://api.openai.com/v1/chat/completions"
-            : "https://api.groq.com/openai/v1/chat/completions";
-          headers["Authorization"] = `Bearer ${key}`; body = { model, messages: [{ role: "user", content: question }] }; } else if (provider === "anthropic") { url = "https://api.anthropic.com/v1/messages"; headers["x-api-key"] = key; headers["anthropic-version"] = "2023-06-01"; headers["anthropic-dangerous-direct-browser-access"] = "true"; body = { model, max_tokens: 1024, messages: [{ role: "user", content: question }] }; } else { url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-          headers["x-goog-api-key"] = key;
-          body = {
-            contents: [{ role: "user", parts: [{ text: question }] }]
-          };
-        }
-
-        const res = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body)
-        });
-
-        const rawText = await res.text();
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch {
-          throw new Error(`HTTP ${res.status}:${rawText}`);
-        }
-
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status} —${data.error?.message || rawText}`);
-        }
-
-        if (provider === "openai" || provider === "groq") {
-          answerEl.innerText = data.choices?.[0]?.message?.content || "(Empty response)";
-          const u = data.usage || {};
-          usageEl.innerText = `Tokens — Prompt: ${u.prompt_tokens ?? 0} \vert{} Completion: ${u.completion_tokens ?? 0} | Total: ${u.total_tokens ?? 0}`; } else if (provider === "anthropic") { answerEl.innerText = (data.content \vert{}\vert{} []).map(b => b.text \vert{}\vert{} "").join("\n") \vert{}\vert{} "(Empty response)"; const u = data.usage \vert{}\vert{} {}; const inp = u.input_tokens ?? 0; const out = u.output_tokens ?? 0; usageEl.innerText = `Tokens — Input: ${inp} | Output: ${out} \vert{} Total:${inp + out}`;
-        } else {
-          answerEl.innerText = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("\n") || "(Empty response)";
-          const u = data.usageMetadata || {};
-          usageEl.innerText = `Tokens — Prompt: ${u.promptTokenCount ?? 0} \vert{} Candidates: ${u.candidatesTokenCount ?? 0} |
+  } catch (error) {
+    answer.innerText = "Error: " + error.message;
+    usage.innerText = "Request failed.";
+  }
+}
+</script>
+</body>
+</html>
